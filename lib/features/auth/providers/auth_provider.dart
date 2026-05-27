@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/services/stream_service.dart';
 
 enum AuthStatus { unknown, authenticated, unauthenticated }
 
@@ -137,6 +138,7 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    await StreamService().disconnect();
     await _storage.delete(key: 'clerk_session_token');
     _currentUser = null;
     _status = AuthStatus.unauthenticated;
@@ -148,6 +150,13 @@ class AuthProvider extends ChangeNotifier {
       final response = await _api.get('/api/users/me');
       _currentUser = UserProfile.fromJson(response);
       _status = AuthStatus.authenticated;
+
+      // Connect Stream Chat in the background — don't block auth on failure
+      StreamService().connectUser(
+        userId: _currentUser!.id,
+        displayName: _currentUser!.displayName,
+        imageUrl: _currentUser!.avatarUrl,
+      ).catchError((_) {});
     } catch (e) {
       _status = AuthStatus.unauthenticated;
       await _storage.delete(key: 'clerk_session_token');
