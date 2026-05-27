@@ -80,19 +80,18 @@ class LionDurations {
 class AppConstants {
   static const String appName = 'LionMessenger';
 
-  // Backend — override with --dart-define=BACKEND_URL=https://your-api.vercel.app
+  // Backend — points to Vercel deployment by default
+  // Override locally with --dart-define=BACKEND_URL=http://localhost:3000
   static const String backendBaseUrl = String.fromEnvironment(
     'BACKEND_URL',
-    defaultValue: 'http://localhost:3000',
+    defaultValue:
+        'https://lion-messenger-lygwukmv2-advaithavinash1.vercel.app',
   );
 
   // Clerk publishable key (safe to ship in client code)
   static const String clerkPublishableKey =
       'pk_test_d29ya2FibGUtc2F3ZmlzaC04MC5jbGVyay5hY2NvdW50cy5kZXYk';
 
-  // Stream Chat — override with --dart-define=STREAM_API_KEY=your_key
-  static const String streamApiKey = String.fromEnvironment(
-    'STREAM_API_KEY',
-    defaultValue: 'your_stream_api_key',
-  );
+  // Stream Chat public API key (safe to ship in client code)
+  static const String streamApiKey = 'g27tvktrtkb5';
 }
