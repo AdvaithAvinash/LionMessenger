@@ -1,0 +1,62 @@
+name: lion_messenger
+description: LionMessenger - Modern messaging app without phone numbers.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Authentication
+  clerk_flutter: ^1.2.0
+
+  # Navigation
+  go_router: ^14.2.0
+
+  # State Management
+  provider: ^6.1.2
+
+  # Messaging
+  stream_chat_flutter: ^9.4.0
+
+  # Animations
+  flutter_animate: ^4.5.0
+  animations: ^2.0.11
+
+  # UI Components
+  cached_network_image: ^3.3.1
+  flutter_svg: ^2.0.10
+  google_fonts: ^6.2.1
+  shimmer: ^3.0.0
+  flutter_slidable: ^3.1.1
+
+  # HTTP & Storage
+  http: ^1.2.1
+  shared_preferences: ^2.3.1
+  flutter_secure_storage: ^9.2.2
+
+  # Utilities
+  intl: ^0.19.0
+  timeago: ^3.6.1
+  image_picker: ^1.1.2
+  uuid: ^4.4.2
+
+  # Firebase (Push Notifications)
+  firebase_core: ^3.4.0
+  firebase_messaging: ^15.1.0
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/
+    - assets/icons/
