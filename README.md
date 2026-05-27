@@ -39,7 +39,7 @@ iOS
 Web
 ⚡ Getting Started
 Clone Repository
-git clone https://github.com/yourusername/lion-messenger.git
+git clone https://github.com/AdvaithAvinash/LionMessenger
 cd lion-messenger
 Install Dependencies
 npm install
