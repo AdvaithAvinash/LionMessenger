@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../providers/friends_provider.dart';
 import '../../../config/constants.dart';
+import '../../../core/services/stream_service.dart';
 import '../../../shared/widgets/user_avatar.dart';
 
 class FriendsScreen extends StatefulWidget {
@@ -317,18 +318,7 @@ class _FriendTile extends StatelessWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _ActionButton(
-            icon: Icons.chat_bubble_outline_rounded,
-            onTap: () => context.go(
-              '/home/chat/${user.id}',
-              extra: {
-                'name': user.displayName,
-                'avatar': user.avatarUrl,
-                'userId': user.id,
-              },
-            ),
-            color: LionColors.primary,
-          ),
+          _MessageButton(user: user),
           const SizedBox(width: 8),
           _ActionButton(
             icon: Icons.more_vert_rounded,
@@ -435,6 +425,73 @@ class _ActionButtonState extends State<_ActionButton> {
           ),
           child: Icon(widget.icon, color: widget.color, size: 18),
         ),
+      ),
+    );
+  }
+}
+
+/// Taps to get-or-create a Stream DM channel then navigates to the chat screen.
+class _MessageButton extends StatefulWidget {
+  final AppUser user;
+  const _MessageButton({required this.user});
+
+  @override
+  State<_MessageButton> createState() => _MessageButtonState();
+}
+
+class _MessageButtonState extends State<_MessageButton> {
+  bool _loading = false;
+
+  Future<void> _openChat() async {
+    setState(() => _loading = true);
+    try {
+      final channel =
+          await StreamService().getOrCreateDMChannel(widget.user.id);
+      if (mounted) {
+        context.go(
+          '/home/chat/${channel.id}',
+          extra: {
+            'name': widget.user.displayName,
+            'avatar': widget.user.avatarUrl,
+            'userId': widget.user.id,
+          },
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open chat')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: _loading ? null : _openChat,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: LionColors.primary.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(LionRadius.sm),
+        ),
+        child: _loading
+            ? const Padding(
+                padding: EdgeInsets.all(9),
+                child: CircularProgressIndicator(
+                  color: LionColors.primary,
+                  strokeWidth: 2,
+                ),
+              )
+            : const Icon(
+                Icons.chat_bubble_outline_rounded,
+                color: LionColors.primary,
+                size: 18,
+              ),
       ),
     );
   }

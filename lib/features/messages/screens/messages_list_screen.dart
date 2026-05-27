@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import 'package:timeago/timeago.dart' as timeago;
-import '../providers/messages_provider.dart';
 import '../../../config/constants.dart';
+import '../../../core/services/stream_service.dart';
 import '../../../shared/widgets/user_avatar.dart';
-import '../../../shared/widgets/loading_overlay.dart';
-import '../../../features/auth/providers/auth_provider.dart';
+import '../../auth/providers/auth_provider.dart';
 
 class MessagesListScreen extends StatefulWidget {
   const MessagesListScreen({super.key});
@@ -17,19 +17,30 @@ class MessagesListScreen extends StatefulWidget {
 }
 
 class _MessagesListScreenState extends State<MessagesListScreen> {
+  late final StreamChannelListController _controller;
   final _searchController = TextEditingController();
   String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<MessagesProvider>().loadConversations();
-    });
+    final currentUserId =
+        context.read<AuthProvider>().currentUser?.id ?? '';
+
+    _controller = StreamChannelListController(
+      client: StreamService().client,
+      filter: Filter.and([
+        Filter.in_('members', [currentUserId]),
+        Filter.equal('type', 'messaging'),
+      ]),
+      channelStateSort: const [SortOption('last_message_at')],
+      limit: 30,
+    );
   }
 
   @override
   void dispose() {
+    _controller.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -41,18 +52,18 @@ class _MessagesListScreenState extends State<MessagesListScreen> {
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      appBar: _buildAppBar(theme, isDark),
+      appBar: _buildAppBar(),
       body: Column(
         children: [
           _buildSearchBar(theme, isDark),
-          Expanded(child: _buildBody(theme, isDark)),
+          Expanded(child: _buildChannelList(theme, isDark)),
         ],
       ),
-      floatingActionButton: _buildFAB(context),
+      floatingActionButton: _buildFAB(),
     );
   }
 
-  PreferredSizeWidget _buildAppBar(ThemeData theme, bool isDark) {
+  PreferredSizeWidget _buildAppBar() {
     return AppBar(
       title: const Text('Messages'),
       actions: [
@@ -101,37 +112,72 @@ class _MessagesListScreenState extends State<MessagesListScreen> {
     );
   }
 
-  Widget _buildBody(ThemeData theme, bool isDark) {
-    return Consumer<MessagesProvider>(
-      builder: (context, provider, _) {
-        if (provider.isLoading && provider.conversations.isEmpty) {
-          return _buildShimmer();
-        }
+  Widget _buildChannelList(ThemeData theme, bool isDark) {
+    return PagedValueListenableBuilder<int, Channel>(
+      valueListenable: _controller,
+      builder: (context, value, child) {
+        return value.when(
+          (channels, nextPageKey, error) {
+            final filtered = _searchQuery.isEmpty
+                ? channels
+                : channels.where((c) {
+                    final name = _getChannelName(c).toLowerCase();
+                    return name.contains(_searchQuery);
+                  }).toList();
 
-        final filtered = provider.conversations
-            .where((c) =>
-                _searchQuery.isEmpty ||
-                c.userName.toLowerCase().contains(_searchQuery))
-            .toList();
+            if (filtered.isEmpty) {
+              return _controller.currentValue?.isLoading == true
+                  ? _buildShimmer()
+                  : _buildEmpty(theme);
+            }
 
-        if (filtered.isEmpty) {
-          return _buildEmpty(theme);
-        }
-
-        return RefreshIndicator(
-          color: LionColors.primary,
-          onRefresh: () => provider.loadConversations(),
-          child: ListView.builder(
-            padding: const EdgeInsets.only(bottom: 80),
-            itemCount: filtered.length,
-            itemBuilder: (context, index) => _ConversationTile(
-              conversation: filtered[index],
-              index: index,
-            ),
-          ),
+            return RefreshIndicator(
+              color: LionColors.primary,
+              onRefresh: () => _controller.refresh(),
+              child: ListView.builder(
+                padding: const EdgeInsets.only(bottom: 80),
+                itemCount: filtered.length +
+                    (nextPageKey != null ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index == filtered.length) {
+                    _controller.loadMore();
+                    return const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          color: LionColors.primary,
+                          strokeWidth: 2,
+                        ),
+                      ),
+                    );
+                  }
+                  return _ChannelTile(
+                    channel: filtered[index],
+                    index: index,
+                  );
+                },
+              ),
+            );
+          },
+          loading: () => _buildShimmer(),
+          error: (e) => _buildError(theme, e.toString()),
         );
       },
     );
+  }
+
+  String _getChannelName(Channel channel) {
+    final currentUserId =
+        StreamService().client.state.currentUser?.id ?? '';
+    if (channel.name != null && channel.name!.isNotEmpty) {
+      return channel.name!;
+    }
+    final otherMember = channel.state?.members
+        .firstWhere(
+          (m) => m.userId != currentUserId,
+          orElse: () => channel.state!.members.first,
+        );
+    return otherMember?.user?.name ?? 'Unknown';
   }
 
   Widget _buildShimmer() {
@@ -211,7 +257,7 @@ class _MessagesListScreenState extends State<MessagesListScreen> {
           ).animate(delay: 100.ms).fadeIn(),
           const SizedBox(height: 8),
           Text(
-            'Start a conversation by adding\na friend first',
+            'Add a friend and start messaging',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurface.withOpacity(0.5),
@@ -222,7 +268,32 @@ class _MessagesListScreenState extends State<MessagesListScreen> {
     );
   }
 
-  Widget _buildFAB(BuildContext context) {
+  Widget _buildError(ThemeData theme, String error) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.wifi_off_rounded,
+            size: 48,
+            color: theme.colorScheme.onSurface.withOpacity(0.3),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Could not load messages',
+            style: theme.textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: () => _controller.refresh(),
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFAB() {
     return FloatingActionButton(
       onPressed: () => context.go('/home/search'),
       backgroundColor: LionColors.primary,
@@ -239,143 +310,177 @@ class _MessagesListScreenState extends State<MessagesListScreen> {
   }
 }
 
-class _ConversationTile extends StatefulWidget {
-  final Conversation conversation;
+class _ChannelTile extends StatefulWidget {
+  final Channel channel;
   final int index;
 
-  const _ConversationTile({
-    required this.conversation,
-    required this.index,
-  });
+  const _ChannelTile({required this.channel, required this.index});
 
   @override
-  State<_ConversationTile> createState() => _ConversationTileState();
+  State<_ChannelTile> createState() => _ChannelTileState();
 }
 
-class _ConversationTileState extends State<_ConversationTile> {
+class _ChannelTileState extends State<_ChannelTile> {
   bool _isPressed = false;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final c = widget.conversation;
+    final currentUserId =
+        StreamService().client.state.currentUser?.id ?? '';
 
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _isPressed = true),
-      onTapUp: (_) {
-        setState(() => _isPressed = false);
-        context.go(
-          '/home/chat/${c.id}',
-          extra: {
-            'name': c.userName,
-            'avatar': c.userAvatar,
-            'userId': c.userId,
-          },
+    return StreamBuilder<ChannelState>(
+      stream: widget.channel.state!.channelStateStream,
+      initialData: widget.channel.state!.channelState,
+      builder: (context, snapshot) {
+        final state = snapshot.data;
+        final lastMessage = widget.channel.state?.messages.lastOrNull;
+        final unread = widget.channel.state?.unreadCount ?? 0;
+
+        // Resolve the other user's info
+        final otherMember = widget.channel.state?.members.firstWhere(
+          (m) => m.userId != currentUserId,
+          orElse: () => widget.channel.state!.members.first,
         );
-      },
-      onTapCancel: () => setState(() => _isPressed = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        color: _isPressed
-            ? (isDark
-                ? Colors.white.withOpacity(0.04)
-                : Colors.black.withOpacity(0.03))
-            : Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Row(
-          children: [
-            UserAvatar(
-              imageUrl: c.userAvatar,
-              name: c.userName,
-              size: 52,
-              showOnline: true,
-              isOnline: c.isOnline,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+        final otherUser = otherMember?.user;
+        final name = otherUser?.name ??
+            widget.channel.name ??
+            'Unknown';
+        final avatar = otherUser?.image;
+        final isOnline = otherUser?.online ?? false;
+
+        return GestureDetector(
+          onTapDown: (_) => setState(() => _isPressed = true),
+          onTapUp: (_) {
+            setState(() => _isPressed = false);
+            context.go(
+              '/home/chat/${widget.channel.id}',
+              extra: {
+                'name': name,
+                'avatar': avatar,
+                'userId': otherUser?.id ?? '',
+              },
+            );
+          },
+          onTapCancel: () => setState(() => _isPressed = false),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            color: _isPressed
+                ? (isDark
+                    ? Colors.white.withOpacity(0.04)
+                    : Colors.black.withOpacity(0.03))
+                : Colors.transparent,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              children: [
+                UserAvatar(
+                  imageUrl: avatar,
+                  name: name,
+                  size: 52,
+                  showOnline: true,
+                  isOnline: isOnline,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          c.userName,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: c.unreadCount > 0
-                                ? FontWeight.w700
-                                : FontWeight.w600,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (c.lastMessageTime != null)
-                        Text(
-                          timeago.format(c.lastMessageTime!, locale: 'en_short'),
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: c.unreadCount > 0
-                                ? LionColors.primary
-                                : theme.colorScheme.onSurface.withOpacity(0.4),
-                            fontWeight: c.unreadCount > 0
-                                ? FontWeight.w600
-                                : FontWeight.w400,
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          c.lastMessage ?? 'Start a conversation',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: c.unreadCount > 0
-                                ? theme.colorScheme.onSurface.withOpacity(0.85)
-                                : theme.colorScheme.onSurface.withOpacity(0.5),
-                            fontWeight: c.unreadCount > 0
-                                ? FontWeight.w500
-                                : FontWeight.w400,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (c.unreadCount > 0) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 7,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: LionColors.primary,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            c.unreadCount > 99
-                                ? '99+'
-                                : c.unreadCount.toString(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              name,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: unread > 0
+                                    ? FontWeight.w700
+                                    : FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                        ),
-                      ],
+                          if (lastMessage?.createdAt != null)
+                            Text(
+                              timeago.format(
+                                lastMessage!.createdAt,
+                                locale: 'en_short',
+                              ),
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: unread > 0
+                                    ? LionColors.primary
+                                    : theme.colorScheme.onSurface
+                                        .withOpacity(0.4),
+                                fontWeight: unread > 0
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              lastMessage?.text ??
+                                  'Start a conversation',
+                              style:
+                                  theme.textTheme.bodyMedium?.copyWith(
+                                color: unread > 0
+                                    ? theme.colorScheme.onSurface
+                                        .withOpacity(0.85)
+                                    : theme.colorScheme.onSurface
+                                        .withOpacity(0.5),
+                                fontWeight: unread > 0
+                                    ? FontWeight.w500
+                                    : FontWeight.w400,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (unread > 0) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: LionColors.primary,
+                                borderRadius:
+                                    BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                unread > 99
+                                    ? '99+'
+                                    : unread.toString(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
-    )
-        .animate(delay: Duration(milliseconds: widget.index * 40))
-        .fadeIn(duration: 300.ms)
-        .slideX(begin: 0.05, end: 0, duration: 300.ms);
+          ),
+        )
+            .animate(
+              delay: Duration(
+                  milliseconds: widget.index * 40),
+            )
+            .fadeIn(duration: 300.ms)
+            .slideX(
+                begin: 0.05, end: 0, duration: 300.ms);
+      },
+    );
   }
 }

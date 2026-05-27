@@ -1,0 +1,35 @@
+{
+  "version": 2,
+  "buildCommand": "cd backend && npm install && npx prisma generate",
+  "builds": [
+    {
+      "src": "backend/server.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["backend/prisma/**"]
+      }
+    }
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "/backend/server.js" }
+  ],
+  "env": {
+    "DATABASE_URL": "@database_url",
+    "CLERK_SECRET_KEY": "@clerk_secret_key",
+    "CLERK_PUBLISHABLE_KEY": "@clerk_publishable_key",
+    "CLERK_WEBHOOK_SECRET": "@clerk_webhook_secret",
+    "STREAM_API_KEY": "@stream_api_key",
+    "STREAM_API_SECRET": "@stream_api_secret",
+    "NODE_ENV": "production"
+  },
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,DELETE,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
+      ]
+    }
+  ]
+}
