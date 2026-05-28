@@ -1,28 +1,7 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "backend/server.js",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": [
-          "backend/prisma/**",
-          "backend/node_modules/.prisma/**",
-          "backend/node_modules/@prisma/client/**"
-        ]
-      }
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/auth/webhook",
-      "methods": ["POST"],
-      "dest": "/backend/server.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/backend/server.js"
-    }
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index" }
   ],
   "headers": [
     {
@@ -30,7 +9,10 @@
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "*" },
         { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,DELETE,PATCH,OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization, svix-id, svix-timestamp, svix-signature" }
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization, svix-id, svix-timestamp, svix-signature"
+        }
       ]
     }
   ]

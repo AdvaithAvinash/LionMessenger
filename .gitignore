@@ -43,6 +43,7 @@ pubspec.lock
 **/ios/Podfile.lock
 
 # Node.js / Backend
+node_modules/
 backend/node_modules/
 backend/.env
 backend/dist/
