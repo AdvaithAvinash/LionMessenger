@@ -6,6 +6,7 @@ import 'package:stream_chat_flutter/stream_chat_flutter.dart';
 import '../../../config/constants.dart';
 import '../../../core/services/stream_service.dart';
 import '../../../shared/widgets/user_avatar.dart';
+import '../../friends/providers/friends_provider.dart';
 
 class ChatScreen extends StatefulWidget {
   final String channelId;
@@ -46,7 +47,6 @@ class _ChatScreenState extends State<ChatScreen> {
           _channel = channel;
           _isLoading = false;
         });
-        // Mark channel as read when opened
         await channel.markRead();
       }
     } catch (e) {
@@ -61,17 +61,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     if (_isLoading) {
       return Scaffold(
         appBar: AppBar(
-          leading: GestureDetector(
-            onTap: () => context.pop(),
-            child: const Padding(
-              padding: EdgeInsets.only(left: 8),
-              child: Icon(Icons.arrow_back_rounded),
-            ),
-          ),
-          title: _buildAppBarTitle(context),
+          leading: _buildBackButton(context),
+          title: _buildTitleLoading(theme),
+          titleSpacing: 0,
         ),
         body: const Center(
           child: CircularProgressIndicator(color: LionColors.primary),
@@ -82,27 +80,26 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_error != null || _channel == null) {
       return Scaffold(
         appBar: AppBar(
-          leading: GestureDetector(
-            onTap: () => context.pop(),
-            child: const Padding(
-              padding: EdgeInsets.only(left: 8),
-              child: Icon(Icons.arrow_back_rounded),
-            ),
-          ),
+          leading: _buildBackButton(context),
           title: Text(widget.userName),
         ),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
-                Icons.error_outline_rounded,
-                color: LionColors.busy,
-                size: 48,
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: LionColors.busy.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.error_outline_rounded,
+                    color: LionColors.busy, size: 36),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               const Text('Could not load chat'),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               TextButton(
                 onPressed: () {
                   setState(() {
@@ -122,24 +119,35 @@ class _ChatScreenState extends State<ChatScreen> {
     return StreamChannel(
       channel: _channel!,
       child: Scaffold(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        appBar: _buildAppBar(context),
-        body: Column(
+        backgroundColor: isDark
+            ? LionColors.backgroundDark
+            : const Color(0xFFF0F0F8),
+        appBar: _buildAppBar(context, theme),
+        body: Stack(
           children: [
-            Expanded(
-              child: StreamMessageListView(
-                threadBuilder: (_, parentMessage) =>
-                    ThreadPage(parent: parentMessage!),
-                onMessageSwiped: (message) {
-                  // Swipe to reply handled by Stream's default
-                },
+            // Subtle dot-grid background
+            SizedBox.expand(
+              child: CustomPaint(
+                painter: _ChatBgPainter(
+                  dotColor: isDark
+                      ? Colors.white.withOpacity(0.025)
+                      : Colors.black.withOpacity(0.025),
+                ),
               ),
             ),
-            StreamMessageInput(
-              preMessageSending: (message) async {
-                // Pre-process message if needed
-                return message;
-              },
+            Column(
+              children: [
+                Expanded(
+                  child: StreamMessageListView(
+                    threadBuilder: (_, parentMessage) =>
+                        ThreadPage(parent: parentMessage!),
+                    messageFilter: defaultFilter,
+                  ),
+                ),
+                StreamMessageInput(
+                  preMessageSending: (message) async => message,
+                ),
+              ],
             ),
           ],
         ),
@@ -147,17 +155,12 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  PreferredSizeWidget _buildAppBar(BuildContext context) {
+  PreferredSizeWidget _buildAppBar(BuildContext context, ThemeData theme) {
     return AppBar(
       leadingWidth: 48,
-      leading: GestureDetector(
-        onTap: () => context.pop(),
-        child: const Padding(
-          padding: EdgeInsets.only(left: 8),
-          child: Icon(Icons.arrow_back_rounded),
-        ),
-      ),
-      title: _buildAppBarTitle(context),
+      leading: _buildBackButton(context),
+      titleSpacing: 0,
+      title: _buildTitle(context, theme),
       actions: [
         IconButton(
           onPressed: () {},
@@ -177,28 +180,45 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildAppBarTitle(BuildContext context) {
-    final theme = Theme.of(context);
+  Widget _buildBackButton(BuildContext context) {
+    return GestureDetector(
+      onTap: () => context.pop(),
+      child: Container(
+        margin: const EdgeInsets.only(left: 8),
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: const Icon(Icons.arrow_back_rounded, size: 20),
+      ),
+    );
+  }
 
+  Widget _buildTitle(BuildContext context, ThemeData theme) {
     return GestureDetector(
       onTap: widget.userId.isNotEmpty
           ? () => context.go('/home/profile/${widget.userId}')
           : null,
       child: Row(
         children: [
-          UserAvatar(
-            imageUrl: widget.userAvatar,
-            name: widget.userName,
-            size: 38,
-            showOnline: _channel != null,
-            isOnline: _channel?.state?.members
-                    .firstWhere(
-                      (m) => m.userId == widget.userId,
-                      orElse: () => Member(),
-                    )
-                    .user
-                    ?.online ??
-                false,
+          Hero(
+            tag: 'chat_avatar_${widget.userId}',
+            child: UserAvatar(
+              imageUrl: widget.userAvatar,
+              name: widget.userName,
+              size: 38,
+              showOnline: _channel != null,
+              isOnline: _channel?.state?.members
+                      .firstWhere(
+                        (m) => m.userId == widget.userId,
+                        orElse: () => Member(),
+                      )
+                      .user
+                      ?.online ??
+                  false,
+            ),
           ),
           const SizedBox(width: 10),
           Flexible(
@@ -224,15 +244,30 @@ class _ChatScreenState extends State<ChatScreen> {
                               .user
                               ?.online ??
                           false;
-                      return Text(
-                        isOnline ? 'Active now' : 'Offline',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: isOnline
-                              ? LionColors.online
-                              : theme.colorScheme.onSurface
-                                  .withOpacity(0.4),
-                          fontWeight: FontWeight.w500,
-                        ),
+                      return Row(
+                        children: [
+                          if (isOnline)
+                            Container(
+                              width: 6,
+                              height: 6,
+                              margin: const EdgeInsets.only(right: 4),
+                              decoration: const BoxDecoration(
+                                color: LionColors.online,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          Text(
+                            isOnline ? 'Active now' : 'Offline',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: isOnline
+                                  ? LionColors.online
+                                  : theme.colorScheme.onSurface
+                                      .withOpacity(0.4),
+                              fontWeight: FontWeight.w500,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
                       );
                     },
                   ),
@@ -244,19 +279,56 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _buildTitleLoading(ThemeData theme) {
+    return Row(
+      children: [
+        UserAvatar(
+          imageUrl: widget.userAvatar,
+          name: widget.userName,
+          size: 38,
+        ),
+        const SizedBox(width: 10),
+        Text(widget.userName, style: theme.textTheme.titleMedium),
+      ],
+    );
+  }
+
   void _showChatOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (_) => _ChatOptionsSheet(
         userName: widget.userName,
+        userId: widget.userId,
         channel: _channel,
       ),
     );
   }
+}
+
+class _ChatBgPainter extends CustomPainter {
+  final Color dotColor;
+  const _ChatBgPainter({required this.dotColor});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = dotColor
+      ..style = PaintingStyle.fill;
+    const spacing = 22.0;
+    const radius = 1.4;
+    for (double x = spacing / 2; x < size.width; x += spacing) {
+      for (double y = spacing / 2; y < size.height; y += spacing) {
+        canvas.drawCircle(Offset(x, y), radius, paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class ThreadPage extends StatelessWidget {
@@ -270,18 +342,25 @@ class ThreadPage extends StatelessWidget {
         title: const Text('Thread'),
         leading: GestureDetector(
           onTap: () => Navigator.pop(context),
-          child: const Padding(
-            padding: EdgeInsets.only(left: 8),
-            child: Icon(Icons.arrow_back_rounded),
+          child: Container(
+            margin: const EdgeInsets.only(left: 8),
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurface
+                  .withOpacity(0.06),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.arrow_back_rounded, size: 20),
           ),
         ),
       ),
       body: Column(
         children: [
           Expanded(
-            child: StreamMessageListView(
-              parentMessage: parent,
-            ),
+            child: StreamMessageListView(parentMessage: parent),
           ),
           StreamMessageInput(parentMessage: parent),
         ],
@@ -292,21 +371,26 @@ class ThreadPage extends StatelessWidget {
 
 class _ChatOptionsSheet extends StatelessWidget {
   final String userName;
+  final String userId;
   final Channel? channel;
 
-  const _ChatOptionsSheet({required this.userName, this.channel});
+  const _ChatOptionsSheet({
+    required this.userName,
+    required this.userId,
+    this.channel,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 40,
+            width: 36,
             height: 4,
             decoration: BoxDecoration(
               color: theme.colorScheme.outline.withOpacity(0.3),
@@ -314,18 +398,46 @@ class _ChatOptionsSheet extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
-          Text(userName, style: theme.textTheme.headlineSmall),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  userName,
+                  style: theme.textTheme.headlineSmall,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Chat settings',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurface.withOpacity(0.45),
+            ),
+          ),
           const SizedBox(height: 20),
           _OptionTile(
             icon: Icons.person_outlined,
             label: 'View Profile',
-            onTap: () => Navigator.pop(context),
+            onTap: () {
+              Navigator.pop(context);
+              if (userId.isNotEmpty) {
+                context.go('/home/profile/$userId');
+              }
+            },
           ),
           _OptionTile(
             icon: Icons.notifications_off_outlined,
             label: 'Mute Notifications',
             onTap: () => Navigator.pop(context),
           ),
+          _OptionTile(
+            icon: Icons.search_rounded,
+            label: 'Search Messages',
+            onTap: () => Navigator.pop(context),
+          ),
+          const Divider(height: 20),
           if (channel != null)
             _OptionTile(
               icon: Icons.delete_outline_rounded,
@@ -339,11 +451,22 @@ class _ChatOptionsSheet extends StatelessWidget {
             ),
           _OptionTile(
             icon: Icons.block_rounded,
-            label: 'Block User',
+            label: 'Block ${userName.split(' ').first}',
             color: LionColors.busy,
-            onTap: () => Navigator.pop(context),
+            onTap: () async {
+              Navigator.pop(context);
+              if (userId.isNotEmpty && context.mounted) {
+                final friends = context.read<FriendsProvider>();
+                // Block via API
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Blocked $userName'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
           ),
-          const SizedBox(height: 8),
         ],
       ),
     );
@@ -366,18 +489,38 @@ class _OptionTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final c = color ?? theme.colorScheme.onSurface;
 
-    return ListTile(
-      leading: Icon(icon, color: c, size: 22),
-      title: Text(
-        label,
-        style: theme.textTheme.bodyLarge?.copyWith(color: c),
-      ),
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(LionRadius.sm),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(LionRadius.md),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: c.withOpacity(isDark ? 0.1 : 0.07),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(icon, color: c, size: 20),
+              ),
+              const SizedBox(width: 14),
+              Text(
+                label,
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: c,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

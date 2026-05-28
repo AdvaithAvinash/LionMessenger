@@ -59,15 +59,18 @@ final GoRouter appRouter = GoRouter(
         GoRoute(
           path: 'chat/:channelId',
           name: 'chat',
-          pageBuilder: (context, state) => _slideTransition(
-            key: state.pageKey,
-            child: ChatScreen(
-              channelId: state.pathParameters['channelId']!,
-              userName: state.uri.queryParameters['name'] ?? 'User',
-              userAvatar: state.uri.queryParameters['avatar'],
-              userId: state.uri.queryParameters['userId'] ?? '',
-            ),
-          ),
+          pageBuilder: (context, state) {
+            final extra = (state.extra as Map<String, dynamic>?) ?? {};
+            return _slideTransition(
+              key: state.pageKey,
+              child: ChatScreen(
+                channelId: state.pathParameters['channelId']!,
+                userName: extra['name'] as String? ?? 'User',
+                userAvatar: extra['avatar'] as String?,
+                userId: extra['userId'] as String? ?? '',
+              ),
+            );
+          },
         ),
         GoRoute(
           path: 'search',
